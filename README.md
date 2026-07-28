@@ -77,7 +77,7 @@ hub method names — so the producer, the hub, and the consumer cannot drift apa
 **Prerequisites:** [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) (`dotnet --version` ≥ `10.0.100`)
 
 ```bash
-git clone https://github.com/<your-username>/LogAggregator.git
+git clone https://github.com/Yassiinee/LogAggregator.git
 cd LogAggregator
 dotnet build
 ```
