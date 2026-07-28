@@ -33,19 +33,19 @@ internal sealed class LogFileTailSource(
     public async IAsyncEnumerable<IReadOnlyList<LogMessage>> ReadAsync(
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        var path = Path.GetFullPath(_options.FilePath);
-        var pollDelay = TimeSpan.FromMilliseconds(Math.Max(50, _options.FilePollMilliseconds));
+        string path = Path.GetFullPath(_options.FilePath);
+        TimeSpan pollDelay = TimeSpan.FromMilliseconds(Math.Max(50, _options.FilePollMilliseconds));
 
         // Only the very first open honours ReadExistingContentOnStartup; after a rotation we
         // always read the replacement file from the beginning, since it is all new content.
-        var seekToEnd = !_options.ReadExistingContentOnStartup;
-        var waitingLogged = false;
+        bool seekToEnd = !_options.ReadExistingContentOnStartup;
+        bool waitingLogged = false;
 
         logger.LogInformation("Tailing {Path} (poll interval {Poll}).", path, pollDelay);
 
         while (!cancellationToken.IsCancellationRequested)
         {
-            var opened = TryOpen(path);
+            (FileStream Stream, DateTime OpenedAtUtc)? opened = TryOpen(path);
             if (opened is null)
             {
                 if (!waitingLogged)
@@ -59,7 +59,7 @@ internal sealed class LogFileTailSource(
             }
 
             waitingLogged = false;
-            var (stream, openedAtUtc) = opened.Value;
+            (FileStream? stream, DateTime openedAtUtc) = opened.Value;
 
             await using (stream)
             {
@@ -70,15 +70,15 @@ internal sealed class LogFileTailSource(
 
                 seekToEnd = false;
 
-                var decoder = Encoding.UTF8.GetDecoder();
-                var bytes = new byte[ReadBufferSize];
-                var chars = new char[Encoding.UTF8.GetMaxCharCount(ReadBufferSize)];
-                var pending = new StringBuilder();
-                var reopen = false;
+                Decoder decoder = Encoding.UTF8.GetDecoder();
+                byte[] bytes = new byte[ReadBufferSize];
+                char[] chars = new char[Encoding.UTF8.GetMaxCharCount(ReadBufferSize)];
+                StringBuilder pending = new();
+                bool reopen = false;
 
                 while (!cancellationToken.IsCancellationRequested && !reopen)
                 {
-                    var read = await ReadChunkAsync(stream, bytes, cancellationToken);
+                    int read = await ReadChunkAsync(stream, bytes, cancellationToken);
 
                     switch (read)
                     {
@@ -96,10 +96,10 @@ internal sealed class LogFileTailSource(
                             continue;
                     }
 
-                    var charCount = decoder.GetChars(bytes, 0, read, chars, 0);
+                    int charCount = decoder.GetChars(bytes, 0, read, chars, 0);
                     pending.Append(chars, 0, charCount);
 
-                    var batch = ExtractCompleteLines(pending);
+                    List<LogMessage> batch = ExtractCompleteLines(pending);
                     if (batch.Count > 0)
                     {
                         yield return batch;
@@ -120,9 +120,9 @@ internal sealed class LogFileTailSource(
             }
 
             // Captured before the open so a file replaced mid-open is caught on the next check.
-            var createdUtc = File.GetCreationTimeUtc(path);
+            DateTime createdUtc = File.GetCreationTimeUtc(path);
 
-            var stream = new FileStream(
+            FileStream stream = new(
                 path,
                 FileMode.Open,
                 FileAccess.Read,
@@ -182,14 +182,14 @@ internal sealed class LogFileTailSource(
     /// </summary>
     private static List<LogMessage> ExtractCompleteLines(StringBuilder pending)
     {
-        var batch = new List<LogMessage>();
-        var text = pending.ToString();
-        var start = 0;
+        List<LogMessage> batch = new();
+        string text = pending.ToString();
+        int start = 0;
 
         int newline;
         while ((newline = text.IndexOf('\n', start)) >= 0)
         {
-            var line = text.AsSpan(start, newline - start).Trim();
+            ReadOnlySpan<char> line = text.AsSpan(start, newline - start).Trim();
             start = newline + 1;
 
             if (!line.IsEmpty)

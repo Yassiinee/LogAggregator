@@ -41,14 +41,14 @@ internal static partial class LogLineParser
 
     public static LogMessage Parse(string line)
     {
-        var match = LinePattern().Match(line);
+        Match match = LinePattern().Match(line);
         if (!match.Success)
         {
             return new LogMessage(DateTime.UtcNow, LogLevels.Info, line.Trim());
         }
 
-        var levelToken = match.Groups["lvl"].Success ? match.Groups["lvl"].Value : null;
-        var message = match.Groups["msg"].Value.Trim();
+        string? levelToken = match.Groups["lvl"].Success ? match.Groups["lvl"].Value : null;
+        string message = match.Groups["msg"].Value.Trim();
 
         // A delimited word that is not a real level (e.g. "GET: /health") belongs to the message.
         if (levelToken is not null && !KnownLevelTokens.Contains(levelToken))
@@ -66,7 +66,7 @@ internal static partial class LogLineParser
     /// <summary>Keeps everything after an optional leading timestamp, level token included.</summary>
     private static string StripTimestamp(string line, Match match)
     {
-        var ts = match.Groups["ts"];
+        Group ts = match.Groups["ts"];
         return ts.Success ? line[(ts.Index + ts.Length)..].TrimStart(' ', '\t', ']') : line;
     }
 
@@ -78,13 +78,13 @@ internal static partial class LogLineParser
         }
 
         // Some loggers use a comma as the fractional-second separator.
-        var raw = group.Value.Replace(',', '.');
+        string raw = group.Value.Replace(',', '.');
 
         return DateTime.TryParse(
             raw,
             CultureInfo.InvariantCulture,
             DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeLocal,
-            out var timestamp)
+            out DateTime timestamp)
             ? timestamp
             : DateTime.UtcNow;
     }

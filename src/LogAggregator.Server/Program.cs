@@ -2,7 +2,7 @@ using LogAggregator.Server.Hubs;
 using LogAggregator.Server.Services;
 using LogAggregator.Shared;
 
-var builder = WebApplication.CreateBuilder(args);
+WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddSignalR(options =>
 {
@@ -20,7 +20,7 @@ builder.Services.AddSingleton(new LogBuffer(
 // With the Blazor Server render mode the HubConnection lives in the UI process, so it never
 // goes through CORS — configured here so switching render modes does not break the app.
 const string BlazorCorsPolicy = "BlazorClients";
-var allowedOrigins = builder.Configuration.GetSection("LogHub:AllowedOrigins").Get<string[]>()
+string[] allowedOrigins = builder.Configuration.GetSection("LogHub:AllowedOrigins").Get<string[]>()
     ?? ["https://localhost:7260", "http://localhost:5114"];
 
 builder.Services.AddCors(options => options.AddPolicy(BlazorCorsPolicy, policy => policy
@@ -29,7 +29,7 @@ builder.Services.AddCors(options => options.AddPolicy(BlazorCorsPolicy, policy =
     .AllowAnyMethod()
     .AllowCredentials())); // SignalR requires credentials for its negotiate handshake.
 
-var app = builder.Build();
+WebApplication app = builder.Build();
 
 app.UseCors(BlazorCorsPolicy);
 

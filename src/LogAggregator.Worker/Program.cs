@@ -3,7 +3,7 @@ using LogAggregator.Worker.Sources;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.Options;
 
-var builder = Host.CreateApplicationBuilder(args);
+HostApplicationBuilder builder = Host.CreateApplicationBuilder(args);
 
 builder.Services.AddOptions<LogSourceOptions>()
     .Bind(builder.Configuration.GetSection(LogSourceOptions.SectionName))
@@ -21,7 +21,7 @@ builder.Services.AddSingleton<SimulatedLogSource>();
 // first successful connect; Worker.EnsureConnectedAsync handles the initial attempt.
 builder.Services.AddSingleton(serviceProvider =>
 {
-    var options = serviceProvider.GetRequiredService<IOptions<LogSourceOptions>>().Value;
+    LogSourceOptions options = serviceProvider.GetRequiredService<IOptions<LogSourceOptions>>().Value;
 
     return new HubConnectionBuilder()
         .WithUrl(options.HubUri)
@@ -36,5 +36,5 @@ builder.Services.AddSingleton(serviceProvider =>
 
 builder.Services.AddHostedService<Worker>();
 
-var host = builder.Build();
+IHost host = builder.Build();
 host.Run();

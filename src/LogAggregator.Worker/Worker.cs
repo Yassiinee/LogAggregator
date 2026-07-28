@@ -20,7 +20,7 @@ internal sealed class Worker(
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        var source = SelectSource();
+        ILogSource source = SelectSource();
         logger.LogInformation("Publishing to {HubUri} from {Source}.", _options.HubUri, source.Name);
 
         WireConnectionEvents();
@@ -29,7 +29,7 @@ internal sealed class Worker(
         // initial attempt is retried here — the worker normally starts before the server is up.
         await EnsureConnectedAsync(stoppingToken);
 
-        await foreach (var batch in source.ReadAsync(stoppingToken))
+        await foreach (IReadOnlyList<LogMessage> batch in source.ReadAsync(stoppingToken))
         {
             await PublishAsync(batch, stoppingToken);
         }
@@ -64,7 +64,7 @@ internal sealed class Worker(
                 return simulatedSource;
 
             default:
-                var path = Path.GetFullPath(_options.FilePath);
+                string path = Path.GetFullPath(_options.FilePath);
                 if (File.Exists(path))
                 {
                     return fileSource;
@@ -79,9 +79,9 @@ internal sealed class Worker(
 
     private async Task PublishAsync(IReadOnlyList<LogMessage> batch, CancellationToken cancellationToken)
     {
-        for (var offset = 0; offset < batch.Count; offset += _options.MaxBatchSize)
+        for (int offset = 0; offset < batch.Count; offset += _options.MaxBatchSize)
         {
-            var chunk = batch.Skip(offset).Take(_options.MaxBatchSize).ToArray();
+            LogMessage[] chunk = batch.Skip(offset).Take(_options.MaxBatchSize).ToArray();
 
             while (!cancellationToken.IsCancellationRequested)
             {
@@ -118,8 +118,8 @@ internal sealed class Worker(
     /// </summary>
     private async Task EnsureConnectedAsync(CancellationToken cancellationToken)
     {
-        var delay = TimeSpan.FromSeconds(1);
-        var maxDelay = TimeSpan.FromSeconds(30);
+        TimeSpan delay = TimeSpan.FromSeconds(1);
+        TimeSpan maxDelay = TimeSpan.FromSeconds(30);
 
         while (!cancellationToken.IsCancellationRequested && connection.State != HubConnectionState.Connected)
         {

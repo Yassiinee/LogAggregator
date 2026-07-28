@@ -45,10 +45,10 @@ internal sealed class SimulatedLogSource(
     public async IAsyncEnumerable<IReadOnlyList<LogMessage>> ReadAsync(
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        var interval = TimeSpan.FromMilliseconds(Math.Max(25, _options.SimulationIntervalMilliseconds));
+        TimeSpan interval = TimeSpan.FromMilliseconds(Math.Max(25, _options.SimulationIntervalMilliseconds));
         logger.LogInformation("Simulating log traffic every {Interval}.", interval);
 
-        using var timer = new PeriodicTimer(interval);
+        using PeriodicTimer timer = new(interval);
 
         while (await timer.WaitForNextTickAsync(cancellationToken))
         {
@@ -58,16 +58,16 @@ internal sealed class SimulatedLogSource(
 
     private static LogMessage Next()
     {
-        var roll = Random.Shared.Next(100);
-        var (level, templates) = roll switch
+        int roll = Random.Shared.Next(100);
+        (string? level, string[]? templates) = roll switch
         {
             < 10 => (LogLevels.Error, ErrorTemplates),
             < 30 => (LogLevels.Warning, WarningTemplates),
             _ => (LogLevels.Info, InfoTemplates),
         };
 
-        var template = templates[Random.Shared.Next(templates.Length)];
-        var text = string.Format(
+        string template = templates[Random.Shared.Next(templates.Length)];
+        string text = string.Format(
             template,
             Random.Shared.Next(8, 900),              // {0} duration in ms
             Random.Shared.Next(10_000, 99_999),      // {1} order id

@@ -17,7 +17,7 @@ public sealed class LogHub(LogBuffer buffer, ILogger<LogHub> logger) : Hub<ILogC
     /// </summary>
     public async Task BroadcastLog(LogMessage message)
     {
-        var normalized = Normalize(message);
+        LogMessage normalized = Normalize(message);
         buffer.Add(normalized);
         await Clients.All.ReceiveLog(normalized);
     }
@@ -33,10 +33,10 @@ public sealed class LogHub(LogBuffer buffer, ILogger<LogHub> logger) : Hub<ILogC
             return;
         }
 
-        var normalized = new List<LogMessage>(messages.Count);
-        foreach (var message in messages)
+        List<LogMessage> normalized = new(messages.Count);
+        foreach (LogMessage message in messages)
         {
-            var entry = Normalize(message);
+            LogMessage entry = Normalize(message);
             buffer.Add(entry);
             normalized.Add(entry);
         }
@@ -46,7 +46,7 @@ public sealed class LogHub(LogBuffer buffer, ILogger<LogHub> logger) : Hub<ILogC
 
     public override async Task OnConnectedAsync()
     {
-        var backlog = buffer.Snapshot();
+        IReadOnlyList<LogMessage> backlog = buffer.Snapshot();
         if (backlog.Count > 0)
         {
             await Clients.Caller.ReceiveLogBatch(backlog);
@@ -76,10 +76,13 @@ public sealed class LogHub(LogBuffer buffer, ILogger<LogHub> logger) : Hub<ILogC
     /// Never trust the producer: clamp the level to a known value and stamp a server-side
     /// timestamp if the worker sent <c>default</c>.
     /// </summary>
-    private static LogMessage Normalize(LogMessage message) => message with
+    private static LogMessage Normalize(LogMessage message)
     {
-        Timestamp = message.Timestamp == default ? DateTime.UtcNow : message.Timestamp.ToUniversalTime(),
-        LogLevel = LogLevels.Normalize(message.LogLevel),
-        Message = message.Message ?? string.Empty,
-    };
+        return message with
+        {
+            Timestamp = message.Timestamp == default ? DateTime.UtcNow : message.Timestamp.ToUniversalTime(),
+            LogLevel = LogLevels.Normalize(message.LogLevel),
+            Message = message.Message ?? string.Empty,
+        };
+    }
 }

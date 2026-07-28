@@ -17,10 +17,13 @@ public static class LogLevels
     /// Collapses the many spellings found in real log files onto one of the three
     /// canonical levels. Anything unrecognised is treated as <see cref="Info"/>.
     /// </summary>
-    public static string Normalize(string? value) => value?.Trim().ToUpperInvariant() switch
+    public static string Normalize(string? value)
     {
-        "ERROR" or "ERR" or "FATAL" or "CRITICAL" or "CRIT" => Error,
-        "WARNING" or "WARN" or "WRN" => Warning,
-        _ => Info,
-    };
+        return value?.Trim().ToUpperInvariant() switch
+        {
+            "ERROR" or "ERR" or "FATAL" or "CRITICAL" or "CRIT" => Error,
+            "WARNING" or "WARN" or "WRN" => Warning,
+            _ => Info,
+        };
+    }
 }
