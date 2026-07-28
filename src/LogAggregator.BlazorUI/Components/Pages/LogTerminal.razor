@@ -1,0 +1,367 @@
+@page "/"
+@using System.Threading
+@using LogAggregator.Shared
+@using Microsoft.AspNetCore.SignalR.Client
+@using Microsoft.Extensions.Options
+@implements IAsyncDisposable
+@inject IOptions<LogHubOptions> Options
+@inject IJSRuntime JS
+@inject ILogger<LogTerminal> Logger
+
+<PageTitle>Live Log Tailer</PageTitle>
+
+<div class="tailer">
+    <header class="toolbar">
+        <div class="toolbar-group status">
+            <span class="dot @StatusCssClass" aria-hidden="true"></span>
+            <span class="status-text">@StatusText</span>
+        </div>
+
+        <div class="toolbar-group filters" role="group" aria-label="Filter by log level">
+            @foreach (var level in LogLevels.All)
+            {
+                <label class="chip @level.ToLowerInvariant() @(IsVisible(level) ? "on" : "off")">
+                    <input type="checkbox"
+                           checked="@IsVisible(level)"
+                           @onchange="e => ToggleLevel(level, (bool?)e.Value ?? false)" />
+                    <span class="chip-label">@level</span>
+                    <span class="chip-count">@CountFor(level)</span>
+                </label>
+            }
+        </div>
+
+        <div class="toolbar-group actions">
+            <label class="chip follow @(_followTail ? "on" : "off")" title="Keep scrolling as new lines arrive">
+                <input type="checkbox" checked="@_followTail" @onchange="e => SetFollowTail((bool?)e.Value ?? false)" />
+                <span class="chip-label">Follow</span>
+            </label>
+            <button type="button" class="chip button" @onclick="Clear">Clear</button>
+        </div>
+    </header>
+
+    <div class="viewport" @ref="_viewport">
+        @if (_view.Count == 0)
+        {
+            <p class="empty">
+                @(_connection?.State == HubConnectionState.Connected
+                    ? "Connected. Waiting for log entries…"
+                    : "Connecting to the log hub…")
+            </p>
+        }
+        else
+        {
+            @foreach (var entry in _view)
+            {
+                @if (IsVisible(entry.Message.LogLevel))
+                {
+                    <div class="line @entry.Message.LogLevel.ToLowerInvariant()" @key="entry.Sequence">
+                        <span class="time">@entry.Message.Timestamp.ToLocalTime().ToString("HH:mm:ss.fff")</span>
+                        <span class="level">@FormatLevel(entry.Message.LogLevel)</span>
+                        <span class="text">@entry.Message.Message</span>
+                    </div>
+                }
+            }
+        }
+    </div>
+
+    <footer class="statusbar">
+        <span>@_view.Count / @Options.Value.MaxVisibleEntries buffered</span>
+        <span>@VisibleCount shown</span>
+        <span class="hub">@Options.Value.HubUri</span>
+    </footer>
+</div>
+
+@code {
+    private const string ModulePath = "./js/terminal.js";
+
+    // Snapshot the render loop reads. Rebuilt under _gate so the renderer never enumerates
+    // the buffer while a hub callback is mutating it.
+    private List<LogEntry> _view = [];
+
+    private readonly Queue<LogEntry> _buffer = new();
+    private readonly Lock _gate = new();
+    private readonly Dictionary<string, int> _counts = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _visibleLevels = new(LogLevels.All, StringComparer.Ordinal);
+
+    private HubConnection? _connection;
+    private IJSObjectReference? _module;
+    private DotNetObjectReference<LogTerminal>? _selfRef;
+    private CancellationTokenSource? _renderLoopCts;
+    private ElementReference _viewport;
+
+    private long _sequence;
+    private bool _dirty;
+    private bool _followTail = true;
+    private bool _scrollPending;
+
+    private int VisibleCount => _view.Count(entry => IsVisible(entry.Message.LogLevel));
+
+    private string StatusText => _connection?.State switch
+    {
+        HubConnectionState.Connected => "Live",
+        HubConnectionState.Reconnecting => "Reconnecting…",
+        HubConnectionState.Connecting => "Connecting…",
+        _ => "Disconnected",
+    };
+
+    private string StatusCssClass => _connection?.State switch
+    {
+        HubConnectionState.Connected => "live",
+        HubConnectionState.Reconnecting or HubConnectionState.Connecting => "pending",
+        _ => "down",
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Skip the prerender pass: opening a hub connection there would be torn down
+        // immediately and the entries would be discarded before the circuit starts.
+        if (!RendererInfo.IsInteractive)
+        {
+            return;
+        }
+
+        _connection = new HubConnectionBuilder()
+            .WithUrl(Options.Value.HubUri)
+            .WithAutomaticReconnect()
+            .Build();
+
+        _connection.On<LogMessage>(LogHubContract.ReceiveLog, message =>
+        {
+            Append(message);
+            return Task.CompletedTask;
+        });
+
+        _connection.On<IReadOnlyList<LogMessage>>(LogHubContract.ReceiveLogBatch, messages =>
+        {
+            foreach (var message in messages)
+            {
+                Append(message);
+            }
+
+            return Task.CompletedTask;
+        });
+
+        // The status indicator has to repaint on these, so force a render rather than
+        // waiting for the next entry to arrive.
+        _connection.Reconnecting += _ => InvokeAsync(StateHasChanged);
+        _connection.Reconnected += _ => InvokeAsync(StateHasChanged);
+        _connection.Closed += _ => InvokeAsync(StateHasChanged);
+
+        _renderLoopCts = new CancellationTokenSource();
+        _ = RenderLoopAsync(_renderLoopCts.Token);
+
+        try
+        {
+            await _connection.StartAsync();
+        }
+        catch (Exception ex)
+        {
+            // Leave the UI up showing "Disconnected"; automatic reconnect only kicks in after a
+            // first successful connect, so retry here until the server is reachable.
+            Logger.LogWarning(ex, "Initial connection to {HubUri} failed.", Options.Value.HubUri);
+            _ = RetryConnectAsync();
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            if (!RendererInfo.IsInteractive)
+            {
+                return;
+            }
+
+            _module = await JS.InvokeAsync<IJSObjectReference>("import", ModulePath);
+            _selfRef = DotNetObjectReference.Create(this);
+            await _module.InvokeVoidAsync("attachScrollWatcher", _viewport, _selfRef);
+        }
+
+        if (_scrollPending && _module is not null)
+        {
+            _scrollPending = false;
+            await _module.InvokeVoidAsync("scrollToBottom", _viewport);
+        }
+    }
+
+    /// <summary>Called from terminal.js so scrolling up pauses follow mode and scrolling back resumes it.</summary>
+    [JSInvokable]
+    public Task OnScrollPositionChanged(bool nearBottom)
+    {
+        if (_followTail == nearBottom)
+        {
+            return Task.CompletedTask;
+        }
+
+        _followTail = nearBottom;
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private void Append(LogMessage message)
+    {
+        var level = LogLevels.Normalize(message.LogLevel);
+        var normalized = message.LogLevel == level ? message : message with { LogLevel = level };
+
+        lock (_gate)
+        {
+            _buffer.Enqueue(new LogEntry(++_sequence, normalized));
+
+            while (_buffer.Count > Options.Value.MaxVisibleEntries)
+            {
+                _buffer.Dequeue();
+            }
+
+            _dirty = true;
+        }
+    }
+
+    /// <summary>
+    /// Coalesces incoming entries into at most one render per interval. Hub callbacks arrive on
+    /// thread-pool threads, so the actual StateHasChanged is marshalled via InvokeAsync.
+    /// </summary>
+    private async Task RenderLoopAsync(CancellationToken cancellationToken)
+    {
+        using var timer = new PeriodicTimer(
+            TimeSpan.FromMilliseconds(Math.Max(16, Options.Value.RenderIntervalMilliseconds)));
+
+        try
+        {
+            while (await timer.WaitForNextTickAsync(cancellationToken))
+            {
+                bool hasChanges;
+                lock (_gate)
+                {
+                    hasChanges = _dirty;
+                    if (hasChanges)
+                    {
+                        _dirty = false;
+                        _view = [.. _buffer];
+                        RecountLocked();
+                    }
+                }
+
+                if (!hasChanges)
+                {
+                    continue;
+                }
+
+                _scrollPending = _followTail;
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Component disposed — expected.
+        }
+    }
+
+    /// <summary>Recomputes per-level counts for the toolbar. Caller must hold <see cref="_gate"/>.</summary>
+    private void RecountLocked()
+    {
+        _counts.Clear();
+        foreach (var entry in _buffer)
+        {
+            _counts[entry.Message.LogLevel] = _counts.GetValueOrDefault(entry.Message.LogLevel) + 1;
+        }
+    }
+
+    private async Task RetryConnectAsync()
+    {
+        var token = _renderLoopCts?.Token ?? CancellationToken.None;
+        var delay = TimeSpan.FromSeconds(2);
+
+        while (!token.IsCancellationRequested && _connection is { State: HubConnectionState.Disconnected })
+        {
+            await Task.Delay(delay, token);
+
+            try
+            {
+                await _connection.StartAsync(token);
+                await InvokeAsync(StateHasChanged);
+                return;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                delay = TimeSpan.FromSeconds(Math.Min(30, delay.TotalSeconds * 2));
+            }
+        }
+    }
+
+    private bool IsVisible(string level) => _visibleLevels.Contains(level);
+
+    private int CountFor(string level) => _counts.GetValueOrDefault(level);
+
+    private void ToggleLevel(string level, bool visible)
+    {
+        if (visible)
+        {
+            _visibleLevels.Add(level);
+        }
+        else
+        {
+            _visibleLevels.Remove(level);
+        }
+
+        // Filtering is pure client-side state — no round trip to the hub, so this is instant.
+        _scrollPending = _followTail;
+    }
+
+    private void SetFollowTail(bool follow)
+    {
+        _followTail = follow;
+        _scrollPending = follow;
+    }
+
+    private void Clear()
+    {
+        lock (_gate)
+        {
+            _buffer.Clear();
+            _counts.Clear();
+            _view = [];
+        }
+    }
+
+    private static string FormatLevel(string level) => level switch
+    {
+        LogLevels.Error => "ERR ",
+        LogLevels.Warning => "WARN",
+        _ => "INFO",
+    };
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_renderLoopCts is not null)
+        {
+            await _renderLoopCts.CancelAsync();
+            _renderLoopCts.Dispose();
+        }
+
+        if (_module is not null)
+        {
+            try
+            {
+                await _module.InvokeVoidAsync("detachScrollWatcher", _viewport);
+                await _module.DisposeAsync();
+            }
+            catch (JSDisconnectedException)
+            {
+                // Browser already gone — nothing to clean up on that side.
+            }
+        }
+
+        _selfRef?.Dispose();
+
+        if (_connection is not null)
+        {
+            await _connection.DisposeAsync();
+        }
+    }
+
+    /// <summary>
+    /// Wraps a message with a monotonic sequence number so the Blazor diff can key rows.
+    /// Without a key, dropping entries off the front of the buffer would make the renderer
+    /// rewrite every visible row instead of just removing one.
+    /// </summary>
+    private sealed record LogEntry(long Sequence, LogMessage Message);
+}

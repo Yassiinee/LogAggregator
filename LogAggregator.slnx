@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/LogAggregator.BlazorUI/LogAggregator.BlazorUI.csproj" />
+    <Project Path="src/LogAggregator.Server/LogAggregator.Server.csproj" />
+    <Project Path="src/LogAggregator.Shared/LogAggregator.Shared.csproj" />
+    <Project Path="src/LogAggregator.Worker/LogAggregator.Worker.csproj" />
+  </Folder>
+</Solution>

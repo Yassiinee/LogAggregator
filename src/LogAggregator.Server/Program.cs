@@ -1,0 +1,45 @@
+using LogAggregator.Server.Hubs;
+using LogAggregator.Server.Services;
+using LogAggregator.Shared;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddSignalR(options =>
+{
+    // A dashboard that stops responding should be dropped reasonably quickly.
+    options.ClientTimeoutInterval = TimeSpan.FromSeconds(30);
+    options.KeepAliveInterval = TimeSpan.FromSeconds(10);
+    options.EnableDetailedErrors = builder.Environment.IsDevelopment();
+});
+
+// Replay history for late-joining dashboards.
+builder.Services.AddSingleton(new LogBuffer(
+    builder.Configuration.GetValue("LogHub:BacklogSize", 500)));
+
+// Only needed if a browser-hosted client (Blazor WebAssembly) talks to the hub directly.
+// With the Blazor Server render mode the HubConnection lives in the UI process, so it never
+// goes through CORS — configured here so switching render modes does not break the app.
+const string BlazorCorsPolicy = "BlazorClients";
+var allowedOrigins = builder.Configuration.GetSection("LogHub:AllowedOrigins").Get<string[]>()
+    ?? ["https://localhost:7260", "http://localhost:5114"];
+
+builder.Services.AddCors(options => options.AddPolicy(BlazorCorsPolicy, policy => policy
+    .WithOrigins(allowedOrigins)
+    .AllowAnyHeader()
+    .AllowAnyMethod()
+    .AllowCredentials())); // SignalR requires credentials for its negotiate handshake.
+
+var app = builder.Build();
+
+app.UseCors(BlazorCorsPolicy);
+
+app.MapHub<LogHub>(LogHubContract.Path);
+
+app.MapGet("/", () => Results.Ok(new
+{
+    service = "LogAggregator.Server",
+    hub = LogHubContract.Path,
+    status = "up",
+}));
+
+app.Run();

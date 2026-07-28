@@ -1,0 +1,235 @@
+/* Scoped to LogTerminal.razor. Colours are the usual terminal-palette conventions:
+   dim grey timestamps, green/amber/red levels on near-black. */
+
+.tailer {
+    --bg: #0b0e14;
+    --bg-raised: #11161f;
+    --border: #1e2530;
+    --fg: #c8d3e0;
+    --fg-dim: #5b6675;
+    --info: #4ec9b0;
+    --warning: #e0af68;
+    --error: #f7768e;
+
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    height: calc(100vh - 4.5rem);
+    min-height: 22rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: ui-monospace, "Cascadia Mono", "Consolas", "SF Mono", Menlo, monospace;
+}
+
+/* ---------- toolbar ---------- */
+
+.toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem 1.25rem;
+    padding: 0.6rem 0.85rem;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-raised);
+}
+
+.toolbar-group {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.toolbar-group.actions {
+    margin-left: auto;
+}
+
+.status {
+    font-size: 0.8rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--fg-dim);
+}
+
+.dot {
+    width: 0.55rem;
+    height: 0.55rem;
+    border-radius: 50%;
+    background: var(--fg-dim);
+}
+
+.dot.live {
+    background: var(--info);
+    box-shadow: 0 0 0 3px rgb(78 201 176 / 18%);
+}
+
+.dot.pending {
+    background: var(--warning);
+    animation: pulse 1.1s ease-in-out infinite;
+}
+
+.dot.down {
+    background: var(--error);
+}
+
+@keyframes pulse {
+    50% { opacity: 0.25; }
+}
+
+/* ---------- filter chips ---------- */
+
+.chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin: 0;
+    padding: 0.25rem 0.6rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--fg-dim);
+    font: inherit;
+    font-size: 0.78rem;
+    letter-spacing: 0.03em;
+    cursor: pointer;
+    user-select: none;
+    transition: color 120ms ease, border-color 120ms ease, background-color 120ms ease;
+}
+
+/* The checkbox stays in the accessibility tree and keeps keyboard/label semantics,
+   but the chip itself is what the user sees. */
+.chip input[type="checkbox"] {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+.chip:hover {
+    border-color: #2c3442;
+    color: var(--fg);
+}
+
+.chip:focus-within {
+    outline: 2px solid #3b82f6;
+    outline-offset: 2px;
+}
+
+.chip-count {
+    padding: 0 0.35rem;
+    border-radius: 999px;
+    background: rgb(255 255 255 / 6%);
+    font-size: 0.72rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.chip.off .chip-label {
+    text-decoration: line-through;
+    text-decoration-thickness: 1px;
+    opacity: 0.75;
+}
+
+.chip.error.on { border-color: rgb(247 118 142 / 55%); color: var(--error); }
+.chip.warning.on { border-color: rgb(224 175 104 / 55%); color: var(--warning); }
+.chip.info.on { border-color: rgb(78 201 176 / 55%); color: var(--info); }
+.chip.follow.on { border-color: rgb(200 211 224 / 45%); color: var(--fg); }
+
+.chip.button:hover {
+    background: rgb(255 255 255 / 6%);
+}
+
+/* ---------- log viewport ---------- */
+
+.viewport {
+    flex: 1 1 auto;
+    padding: 0.5rem 0 0.75rem;
+    overflow-y: auto;
+    overflow-x: auto;
+    scrollbar-color: #2c3442 transparent;
+    font-size: 0.82rem;
+    line-height: 1.55;
+    /* Prevent the browser from anchoring scroll position while lines stream in. */
+    overflow-anchor: none;
+}
+
+.line {
+    display: flex;
+    gap: 0.75rem;
+    padding: 0 0.85rem;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.line:hover {
+    background: rgb(255 255 255 / 4%);
+}
+
+.time {
+    flex: 0 0 auto;
+    color: var(--fg-dim);
+    font-variant-numeric: tabular-nums;
+}
+
+.level {
+    flex: 0 0 auto;
+    font-weight: 600;
+}
+
+.line.info .level { color: var(--info); }
+.line.warning .level { color: var(--warning); }
+.line.error .level { color: var(--error); }
+
+.line.warning .text { color: #ecd3a5; }
+.line.error .text { color: #ffb3c0; }
+
+/* A hairline in the gutter makes a burst of errors visible while scrolling fast. */
+.line.error {
+    box-shadow: inset 3px 0 0 var(--error);
+}
+
+.line.warning {
+    box-shadow: inset 3px 0 0 rgb(224 175 104 / 60%);
+}
+
+.empty {
+    margin: 0;
+    padding: 1rem 0.85rem;
+    color: var(--fg-dim);
+    font-size: 0.82rem;
+}
+
+/* ---------- status bar ---------- */
+
+.statusbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem 1.25rem;
+    padding: 0.4rem 0.85rem;
+    border-top: 1px solid var(--border);
+    background: var(--bg-raised);
+    color: var(--fg-dim);
+    font-size: 0.72rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.statusbar .hub {
+    margin-left: auto;
+    opacity: 0.75;
+}
+
+@media (max-width: 640px) {
+    .toolbar-group.actions {
+        margin-left: 0;
+    }
+
+    .statusbar .hub {
+        margin-left: 0;
+    }
+}
