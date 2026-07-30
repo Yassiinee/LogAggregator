@@ -5,10 +5,7 @@ using Microsoft.Extensions.Options;
 
 namespace LogAggregator.Worker;
 
-/// <summary>
-/// The producer side of the dashboard: reads log entries from the configured source and
-/// invokes <c>LogHub.BroadcastLog</c> / <c>BroadcastLogBatch</c> for each batch.
-/// </summary>
+/// <summary>Reads logs from configured source and publishes them to the hub.</summary>
 internal sealed class Worker(
     HubConnection connection,
     LogFileTailSource fileSource,
@@ -16,21 +13,12 @@ internal sealed class Worker(
     IOptions<LogSourceOptions> options,
     ILogger<Worker> logger) : BackgroundService
 {
-    /// <summary>
-    /// Upper bound on one hub invocation's payload. The server accepts 1 MB, so chunking at
-    /// half that leaves room for the estimate below to be wrong without the hub rejecting
-    /// the frame.
-    /// </summary>
+    // Server hub accepts 1 MB; chunking at 512 KB leaves room for serialization overhead.
     private const int MaxPayloadBytes = 512 * 1024;
 
-    /// <summary>
-    /// Longest single message we will publish. A tailed file can produce an arbitrarily long
-    /// line (a minified payload, a corrupt file with no newlines); truncating keeps it under
-    /// the frame limit instead of making it undeliverable.
-    /// </summary>
+    // Truncate oversized lines to prevent undeliverable frames.
     private const int MaxMessageChars = 32 * 1024;
 
-    /// <summary>Invocation failures tolerated before a chunk is dropped rather than retried forever.</summary>
     private const int MaxPublishAttempts = 5;
 
     private readonly LogSourceOptions _options = options.Value;
@@ -66,10 +54,7 @@ internal sealed class Worker(
         }
     }
 
-    /// <summary>
-    /// Auto mode prefers a real file and falls back to the simulator, so the solution runs
-    /// out of the box while still tailing a file the moment one exists.
-    /// </summary>
+    /// <summary>Auto mode prefers a real file, falls back to simulator.</summary>
     private ILogSource SelectSource()
     {
         switch (_options.Mode)
@@ -94,11 +79,7 @@ internal sealed class Worker(
         }
     }
 
-    /// <summary>
-    /// Splits a batch into frames the hub will accept and publishes them in order. Chunking
-    /// on entry count alone is not enough: fifty long lines build a frame larger than the
-    /// hub's receive limit, and that frame can never succeed no matter how often it is sent.
-    /// </summary>
+    /// <summary>Chunks batch by size and payload bytes, then publishes each chunk.</summary>
     private async Task PublishAsync(IReadOnlyList<LogMessage> batch, CancellationToken cancellationToken)
     {
         int offset = 0;
@@ -174,10 +155,7 @@ internal sealed class Worker(
         }
     }
 
-    /// <summary>
-    /// Conservative upper bound on a message's serialised size. A UTF-16 char encodes to at
-    /// most three UTF-8 bytes, plus room for the timestamp, level and property names.
-    /// </summary>
+    /// <summary>Conservative upper bound on serialized message size (UTF-8 + overhead).</summary>
     private static int EstimateBytes(LogMessage message)
     {
         return (message.Message.Length * 3) + 128;
@@ -190,10 +168,7 @@ internal sealed class Worker(
             : message with { Message = string.Concat(message.Message.AsSpan(0, MaxMessageChars), "… [truncated]") };
     }
 
-    /// <summary>
-    /// Blocks until the connection is usable. Handles both the initial connect (state
-    /// Disconnected -> StartAsync with backoff) and waiting out an automatic reconnect.
-    /// </summary>
+    /// <summary>Waits until connected to the hub, with exponential backoff.</summary>
     private async Task EnsureConnectedAsync(CancellationToken cancellationToken)
     {
         TimeSpan delay = TimeSpan.FromSeconds(1);

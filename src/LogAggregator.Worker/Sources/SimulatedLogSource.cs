@@ -4,11 +4,7 @@ using Microsoft.Extensions.Options;
 
 namespace LogAggregator.Worker.Sources;
 
-/// <summary>
-/// Generates plausible traffic on a timer so the dashboard can be demonstrated without a real
-/// log file. Levels are weighted (~70% Info, ~20% Warning, ~10% Error) so the filter toggles
-/// have something meaningful to hide and reveal.
-/// </summary>
+/// <summary>Generates simulated log traffic with weighted log levels for testing.</summary>
 internal sealed class SimulatedLogSource(
     IOptions<LogSourceOptions> options,
     ILogger<SimulatedLogSource> logger) : ILogSource

@@ -4,17 +4,10 @@ using Microsoft.AspNetCore.SignalR;
 
 namespace LogAggregator.Server.Hubs;
 
-/// <summary>
-/// The fan-out point of the architecture: workers invoke <see cref="BroadcastLog"/>, and every
-/// connected dashboard receives the entry on <see cref="ILogClient.ReceiveLog"/>.
-/// </summary>
+/// <summary>Fan-out hub for log entries: workers publish, dashboards subscribe.</summary>
 public sealed class LogHub(LogBuffer buffer, ILogger<LogHub> logger) : Hub<ILogClient>
 {
-    /// <summary>
-    /// Called by a worker for each new log line. Normalises the level, records it in the
-    /// replay buffer, then broadcasts to all clients (including other workers, which simply
-    /// never subscribe to <c>ReceiveLog</c>).
-    /// </summary>
+    /// <summary>Records and broadcasts a single log message.</summary>
     public async Task BroadcastLog(LogMessage message)
     {
         LogMessage normalized = Normalize(message);
@@ -22,10 +15,7 @@ public sealed class LogHub(LogBuffer buffer, ILogger<LogHub> logger) : Hub<ILogC
         await Clients.All.ReceiveLog(normalized);
     }
 
-    /// <summary>
-    /// Batch variant, used when a tailed file produces a burst of lines at once. Sending one
-    /// invocation instead of N keeps the hub from becoming the bottleneck during a log flood.
-    /// </summary>
+    /// <summary>Batch variant to reduce hub load during log floods.</summary>
     public async Task BroadcastLogBatch(IReadOnlyList<LogMessage> messages)
     {
         if (messages is null or { Count: 0 })
@@ -72,10 +62,7 @@ public sealed class LogHub(LogBuffer buffer, ILogger<LogHub> logger) : Hub<ILogC
         return base.OnDisconnectedAsync(exception);
     }
 
-    /// <summary>
-    /// Never trust the producer: clamp the level to a known value and stamp a server-side
-    /// timestamp if the worker sent <c>default</c>.
-    /// </summary>
+    /// <summary>Normalizes and validates incoming messages, enforces known log levels.</summary>
     private static LogMessage Normalize(LogMessage message)
     {
         return message with

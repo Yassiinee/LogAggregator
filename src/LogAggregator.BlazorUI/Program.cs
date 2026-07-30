@@ -1,7 +1,7 @@
 using LogAggregator.BlazorUI;
 using LogAggregator.BlazorUI.Components;
 
-var builder = WebApplication.CreateBuilder(args);
+WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 builder.Services.AddRazorComponents()
@@ -14,7 +14,7 @@ builder.Services.AddOptions<LogHubOptions>()
         $"{LogHubOptions.SectionName}:{nameof(LogHubOptions.ServerBaseUrl)} must be an absolute URL.")
     .ValidateOnStart();
 
-var app = builder.Build();
+WebApplication app = builder.Build();
 
 // Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())
