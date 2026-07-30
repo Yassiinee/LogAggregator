@@ -33,13 +33,13 @@ public sealed class LogHub(LogBuffer buffer, ILogger<LogHub> logger) : Hub<ILogC
             return;
         }
 
-        List<LogMessage> normalized = new(messages.Count);
-        foreach (LogMessage message in messages)
+        LogMessage[] normalized = new LogMessage[messages.Count];
+        for (int i = 0; i < messages.Count; i++)
         {
-            LogMessage entry = Normalize(message);
-            buffer.Add(entry);
-            normalized.Add(entry);
+            normalized[i] = Normalize(messages[i]);
         }
+
+        buffer.AddRange(normalized);
 
         await Clients.All.ReceiveLogBatch(normalized);
     }

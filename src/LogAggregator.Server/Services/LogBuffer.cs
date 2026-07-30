@@ -7,23 +7,53 @@ namespace LogAggregator.Server.Services;
 /// A hub is transient (one instance per invocation), so history has to live in a singleton.
 /// Its only job is to keep a newly connected dashboard from starting empty.
 /// </summary>
-public sealed class LogBuffer(int capacity = 500)
+public sealed class LogBuffer
 {
-    private readonly Queue<LogMessage> _entries = new(capacity);
+    private readonly Queue<LogMessage> _entries;
     private readonly Lock _gate = new();
 
-    public int Capacity { get; } = capacity;
+    public LogBuffer(int capacity = 500)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(capacity);
+
+        Capacity = capacity;
+        _entries = new Queue<LogMessage>(capacity);
+    }
+
+    /// <summary>Entries retained for replay. Zero is valid and disables replay entirely.</summary>
+    public int Capacity { get; }
 
     public void Add(LogMessage message)
     {
+        if (Capacity == 0)
+        {
+            return;
+        }
+
         lock (_gate)
         {
-            if (_entries.Count == Capacity)
-            {
-                _entries.Dequeue();
-            }
+            AddLocked(message);
+        }
+    }
 
-            _entries.Enqueue(message);
+    /// <summary>
+    /// Adds a whole batch under a single lock acquisition. Doing this per entry made a
+    /// 50-line batch contend for the gate 50 times against every other producer and every
+    /// dashboard connecting at that moment.
+    /// </summary>
+    public void AddRange(ReadOnlySpan<LogMessage> messages)
+    {
+        if (Capacity == 0 || messages.IsEmpty)
+        {
+            return;
+        }
+
+        lock (_gate)
+        {
+            foreach (LogMessage message in messages)
+            {
+                AddLocked(message);
+            }
         }
     }
 
@@ -34,5 +64,16 @@ public sealed class LogBuffer(int capacity = 500)
         {
             return [.. _entries];
         }
+    }
+
+    /// <summary>Caller must hold <see cref="_gate"/>.</summary>
+    private void AddLocked(LogMessage message)
+    {
+        while (_entries.Count >= Capacity)
+        {
+            _entries.Dequeue();
+        }
+
+        _entries.Enqueue(message);
     }
 }

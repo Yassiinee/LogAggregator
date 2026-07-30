@@ -10,11 +10,22 @@ builder.Services.AddSignalR(options =>
     options.ClientTimeoutInterval = TimeSpan.FromSeconds(30);
     options.KeepAliveInterval = TimeSpan.FromSeconds(10);
     options.EnableDetailedErrors = builder.Environment.IsDevelopment();
+
+    // The framework default is 32 KB, which one stack trace can exceed. The hub then drops
+    // the connection mid-invocation and the producer republishes the same oversized frame,
+    // so set the ceiling deliberately — the worker chunks well under it.
+    options.MaximumReceiveMessageSize = 1024 * 1024;
 });
 
 // Replay history for late-joining dashboards.
-builder.Services.AddSingleton(new LogBuffer(
-    builder.Configuration.GetValue("LogHub:BacklogSize", 500)));
+int backlogSize = builder.Configuration.GetValue("LogHub:BacklogSize", 500);
+if (backlogSize < 0)
+{
+    throw new InvalidOperationException(
+        $"LogHub:BacklogSize must be zero or greater (got {backlogSize}). Zero disables replay.");
+}
+
+builder.Services.AddSingleton(new LogBuffer(backlogSize));
 
 // Only needed if a browser-hosted client (Blazor WebAssembly) talks to the hub directly.
 // With the Blazor Server render mode the HubConnection lives in the UI process, so it never
