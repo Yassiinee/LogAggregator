@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Globalization;
 using System.Text.RegularExpressions;
 using LogAggregator.Shared;
@@ -31,13 +32,13 @@ internal static partial class LogLineParser
     private static partial Regex LinePattern();
 
     /// <summary>Levels we accept as an actual level token rather than as the start of the message.</summary>
-    private static readonly HashSet<string> KnownLevelTokens = new(StringComparer.OrdinalIgnoreCase)
+    private static readonly FrozenSet<string> KnownLevelTokens = FrozenSet.ToFrozenSet(new[]
     {
         "TRACE", "DEBUG", "DBG", "VERBOSE",
         "INFO", "INF", "INFORMATION",
         "WARN", "WRN", "WARNING",
         "ERROR", "ERR", "FATAL", "CRITICAL", "CRIT",
-    };
+    }, StringComparer.OrdinalIgnoreCase);
 
     public static LogMessage Parse(string line)
     {

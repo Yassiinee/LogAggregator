@@ -161,6 +161,7 @@ internal sealed class LogFileTailSource(
     {
         try
         {
+            // File was truncated (no longer as long as our read position).
             if (stream.Length < stream.Position)
             {
                 return true;

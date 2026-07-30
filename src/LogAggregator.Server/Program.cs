@@ -19,10 +19,10 @@ builder.Services.AddSignalR(options =>
 
 // Replay history for late-joining dashboards.
 int backlogSize = builder.Configuration.GetValue("LogHub:BacklogSize", 500);
-if (backlogSize < 0)
+if (backlogSize <= 0)
 {
     throw new InvalidOperationException(
-        $"LogHub:BacklogSize must be zero or greater (got {backlogSize}). Zero disables replay.");
+        $"LogHub:BacklogSize must be greater than zero (got {backlogSize}).");
 }
 
 builder.Services.AddSingleton(new LogBuffer(backlogSize));

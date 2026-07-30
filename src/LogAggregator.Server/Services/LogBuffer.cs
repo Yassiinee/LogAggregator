@@ -10,7 +10,7 @@ public sealed class LogBuffer
 
     public LogBuffer(int capacity = 500)
     {
-        ArgumentOutOfRangeException.ThrowIfNegative(capacity);
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(capacity, 0);
 
         Capacity = capacity;
         _entries = new Queue<LogMessage>(capacity);

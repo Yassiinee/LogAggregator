@@ -11,6 +11,7 @@ internal sealed class Worker(
     LogFileTailSource fileSource,
     SimulatedLogSource simulatedSource,
     IOptions<LogSourceOptions> options,
+    IHostApplicationLifetime lifetime,
     ILogger<Worker> logger) : BackgroundService
 {
     // Server hub accepts 1 MB; chunking at 512 KB leaves room for serialization overhead.
@@ -19,6 +20,7 @@ internal sealed class Worker(
     // Truncate oversized lines to prevent undeliverable frames.
     private const int MaxMessageChars = 32 * 1024;
 
+    // Limits retry attempts to prevent poison chunks from blocking the tailer indefinitely.
     private const int MaxPublishAttempts = 5;
 
     private readonly LogSourceOptions _options = options.Value;
@@ -38,6 +40,10 @@ internal sealed class Worker(
         {
             await PublishAsync(batch, stoppingToken);
         }
+
+        // Source completed (should not happen for file/simulated sources, but shut down gracefully if it does).
+        logger.LogInformation("Source completed; stopping application.");
+        lifetime.StopApplication();
     }
 
     public override async Task StopAsync(CancellationToken cancellationToken)

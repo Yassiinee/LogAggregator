@@ -12,7 +12,8 @@ public sealed class LogHub(LogBuffer buffer, ILogger<LogHub> logger) : Hub<ILogC
     {
         LogMessage normalized = Normalize(message);
         buffer.Add(normalized);
-        await Clients.All.ReceiveLog(normalized);
+        // Don't echo back to the producer; only send to dashboards.
+        await Clients.AllExcept(Context.ConnectionId).ReceiveLog(normalized);
     }
 
     /// <summary>Batch variant to reduce hub load during log floods.</summary>
@@ -23,15 +24,19 @@ public sealed class LogHub(LogBuffer buffer, ILogger<LogHub> logger) : Hub<ILogC
             return;
         }
 
-        LogMessage[] normalized = new LogMessage[messages.Count];
-        for (int i = 0; i < messages.Count; i++)
+        // Clamp batch size to prevent abuse.
+        int count = Math.Min(messages.Count, 1000);
+
+        LogMessage[] normalized = new LogMessage[count];
+        for (int i = 0; i < count; i++)
         {
             normalized[i] = Normalize(messages[i]);
         }
 
         buffer.AddRange(normalized);
 
-        await Clients.All.ReceiveLogBatch(normalized);
+        // Don't echo back to the producer; only send to dashboards.
+        await Clients.AllExcept(Context.ConnectionId).ReceiveLogBatch(normalized);
     }
 
     public override async Task OnConnectedAsync()
@@ -65,11 +70,17 @@ public sealed class LogHub(LogBuffer buffer, ILogger<LogHub> logger) : Hub<ILogC
     /// <summary>Normalizes and validates incoming messages, enforces known log levels.</summary>
     private static LogMessage Normalize(LogMessage message)
     {
-        return message with
+        // Clamp message length to prevent excessive memory usage.
+        const int MaxMessageLength = 32 * 1024;
+        string msg = message.Message ?? string.Empty;
+        if (msg.Length > MaxMessageLength)
         {
-            Timestamp = message.Timestamp == default ? DateTime.UtcNow : message.Timestamp.ToUniversalTime(),
-            LogLevel = LogLevels.Normalize(message.LogLevel),
-            Message = message.Message ?? string.Empty,
-        };
+            msg = msg[..MaxMessageLength] + "… [truncated]";
+        }
+
+        return new LogMessage(
+            message.Timestamp == default ? DateTime.UtcNow : message.Timestamp.ToUniversalTime(),
+            LogLevels.Normalize(message.LogLevel),
+            msg);
     }
 }
